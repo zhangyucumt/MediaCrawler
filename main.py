@@ -26,6 +26,7 @@ from media_platform.xhs import XiaoHongShuCrawler
 from media_platform.zhihu import ZhihuCrawler
 from tools.async_file_writer import AsyncFileWriter
 from var import crawler_type_var
+from yunyizz.decorator import yunyizz_decorator
 
 
 class CrawlerFactory:
@@ -56,6 +57,7 @@ crawler: Optional[AbstractCrawler] = None
 # 原因：增加 --init_db 功能，用于数据库初始化。
 # 副作用：无
 # 回滚策略：还原此文件。
+@yunyizz_decorator
 async def main():
     # Init crawler
     global crawler

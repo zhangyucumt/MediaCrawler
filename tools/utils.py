@@ -13,6 +13,7 @@ import argparse
 import logging
 
 from .crawler_util import *
+from .logging_http_handler import AsyncHTTPHandler
 from .slider_util import *
 from .time_util import *
 
@@ -26,6 +27,9 @@ def init_loging_config():
     )
     _logger = logging.getLogger("MediaCrawler")
     _logger.setLevel(level)
+
+    async_handler = AsyncHTTPHandler()
+    _logger.addHandler(async_handler)
 
     # 关闭 httpx 的 INFO 日志
     logging.getLogger("httpx").setLevel(logging.WARNING)
