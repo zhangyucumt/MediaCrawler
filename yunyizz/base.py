@@ -68,10 +68,20 @@ class YunyizzBaseRequest(object):
                                 self.request_body, sort_keys=True, ensure_ascii=False
                             ), resp.status_code, resp.content.decode('utf-8')
                         ))
+                    if not resp_json["success"]:
+                        utils.logger.error("rpc yunyizz request({} {} {}) response({} {})".format(
+                            url, json.dumps(
+                                self.request_params, sort_keys=True, ensure_ascii=False
+                            ), json.dumps(
+                                self.request_body, sort_keys=True, ensure_ascii=False
+                            ), resp.status_code, resp.content.decode('utf-8')
+                        ))
+                        error_msg = f"请求yunyizz接口失败: {resp_json['message']}"
+                        break
                     return self.process_resp(resp_json)
         if raise_exception:
             raise Exception(error_msg)
         return None
 
     def process_resp(self, resp):
-        return resp
+        return resp["data"]

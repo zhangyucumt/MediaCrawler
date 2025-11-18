@@ -1,7 +1,14 @@
 # yunyizz 相关配置
 
-ASYNC_TASK_ID = 1
+PLATFORM = "douyin"
 
-BASE_URL = "http://spider-star.dev.yunyizz.com"
-USERNAME = "yunyizz"
-PASSWORD = "123456"
+ASYNC_TASK_ID = 10
+
+# BASE_URL = "http://spider-star.dev.yunyizz.com"
+BASE_URL = "http://127.0.0.1:8000"
+USERNAME = "admin"
+PASSWORD = "admin"
+
+SPIDER_ACCOUNT_ID = 1
+
+MAX_SEARCH_AUTHOR_COUNT = 20

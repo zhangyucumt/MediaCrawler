@@ -12,7 +12,7 @@ import asyncio
 import os
 import random
 from asyncio import Task
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Set
 
 from playwright.async_api import (
     BrowserContext,
@@ -29,6 +29,7 @@ from store import douyin as douyin_store
 from tools import utils
 from tools.cdp_browser import CDPBrowserManager
 from var import crawler_type_var, source_keyword_var
+from yunyizz.trait import YunyizzTrait
 
 from .client import DouYinClient
 from .exception import DataFetchError
@@ -37,7 +38,7 @@ from .help import parse_video_info_from_url, parse_creator_info_from_url
 from .login import DouYinLogin
 
 
-class DouYinCrawler(AbstractCrawler):
+class DouYinCrawler(AbstractCrawler, YunyizzTrait):
     context_page: Page
     dy_client: DouYinClient
     browser_context: BrowserContext
@@ -91,16 +92,25 @@ class DouYinCrawler(AbstractCrawler):
                 )
                 await login_obj.begin()
                 await self.dy_client.update_cookies(browser_context=self.browser_context)
+
+            if not await self.dy_client.pong(browser_context=self.browser_context):
+                utils.logger.error("[DouYinCrawler] 登录失败, 标记账号离线，并重置任务状态")
+                self.mark_spider_account_offline()
+                self.mark_task_waiting()
+                return
+
             crawler_type_var.set(config.CRAWLER_TYPE)
             if config.CRAWLER_TYPE == "search":
                 # Search for notes and retrieve their comment information.
-                await self.search()
+                await self.search_author()
             elif config.CRAWLER_TYPE == "detail":
                 # Get the information and comments of the specified post
                 await self.get_specified_awemes()
             elif config.CRAWLER_TYPE == "creator":
                 # Get the information and comments of the specified creator
                 await self.get_creators_and_videos()
+            elif config.CRAWLER_TYPE == "search_author":
+                await self.search_author()
 
             utils.logger.info("[DouYinCrawler.start] Douyin Crawler finished ...")
 
@@ -439,3 +449,87 @@ class DouYinCrawler(AbstractCrawler):
             return
         extension_file_name = f"video.mp4"
         await douyin_store.update_dy_aweme_video(aweme_id, content, extension_file_name)
+
+    async def search_author(self) -> None:
+        utils.logger.info("[DouYinCrawler.search] Begin search douyin keywords")
+        dy_limit_count = 10  # douyin limit page fixed value
+        if config.CRAWLER_MAX_NOTES_COUNT < dy_limit_count:
+            config.CRAWLER_MAX_NOTES_COUNT = dy_limit_count
+        start_page = config.START_PAGE  # start page number
+        for keyword in config.KEYWORDS.split(","):
+            source_keyword_var.set(keyword)
+            utils.logger.info(f"[DouYinCrawler.search] Current keyword: {keyword}")
+            user_id_set: Set[str] = set()
+            upload_user_id_set: Set[str] = set()
+            page = 0
+            dy_search_id = ""
+            while (page - start_page + 1) * dy_limit_count <= config.CRAWLER_MAX_NOTES_COUNT:
+                inner_user_ids: Set[str] = set()
+                if page < start_page:
+                    utils.logger.info(f"[DouYinCrawler.search] Skip {page}")
+                    page += 1
+                    continue
+                try:
+                    utils.logger.info(f"[DouYinCrawler.search] search douyin keyword: {keyword}, page: {page}")
+                    posts_res = await self.dy_client.search_info_by_keyword(
+                        keyword=keyword,
+                        offset=page * dy_limit_count - dy_limit_count,
+                        publish_time=PublishTimeType(config.PUBLISH_TIME_TYPE),
+                        search_id=dy_search_id,
+                    )
+                    if posts_res.get("data") is None or posts_res.get("data") == []:
+                        utils.logger.info(
+                            f"[DouYinCrawler.search] search douyin keyword: {keyword}, page: {page} is empty,{posts_res.get('data')}`")
+                        break
+                except DataFetchError:
+                    utils.logger.error(f"[DouYinCrawler.search] search douyin keyword: {keyword} failed")
+                    break
+
+                page += 1
+                if "data" not in posts_res:
+                    utils.logger.error(
+                        f"[DouYinCrawler.search] search douyin keyword: {keyword} failed，账号也许被风控了。")
+                    break
+                dy_search_id = posts_res.get("extra", {}).get("logid", "")
+                for post_item in posts_res.get("data"):
+                    try:
+                        aweme_info: Dict = (
+                                    post_item.get("aweme_info") or post_item.get("aweme_mix_info", {}).get("mix_items")[
+                                0])
+                    except TypeError:
+                        continue
+                    user_id = aweme_info.get("author", {}).get("sec_uid")
+                    if user_id and user_id not in user_id_set:
+                        user_id_set.add(user_id)
+                        inner_user_ids.add(user_id)
+                missing_uids = self.are_authors_in_db(list(inner_user_ids))
+                utils.logger.info(f"[DouYinCrawler.search] upload author count: {len(missing_uids)}")
+                upload_user_id_set.update(missing_uids)
+
+                for missing_uid in missing_uids:
+                    utils.logger.info(f"[DouYinCrawler.search] upload author: {missing_uid}")
+                    ui = await self.dy_client.get_user_info(missing_uid)
+                    user_info = ui.get("user", {})
+                    self.upload_authors(missing_uid, **{
+                        "avatar": user_info.get("avatar_thumb", {}).get("url_list", [""])[0],
+                        "nickname": user_info.get("nickname", ""),
+                        "description": user_info.get("signature", ""),
+                        "follow_count": user_info.get("following_count", 0),
+                        "follower_count": user_info.get("follower_count", 0),
+                        "ip_location": user_info.get("ip_location", ""),
+                        "like_count": user_info.get("total_favorited", 0),
+                        "like_count_num": user_info.get("total_favorited", 0),
+                        "tags": [],
+                        "homepage_link": f"https://www.douyin.com/user/{missing_uid}?from_tab_name=main",
+                        "redbook_id": "",
+                        "ext_info": user_info
+                    })
+                if len(upload_user_id_set) >= config.yunyizz_config.MAX_SEARCH_AUTHOR_COUNT:
+                    break
+                # Sleep after each page navigation
+                await asyncio.sleep(config.CRAWLER_MAX_SLEEP_SEC)
+                utils.logger.info(
+                    f"[DouYinCrawler.search] Sleeping for {config.CRAWLER_MAX_SLEEP_SEC} seconds after page {page - 1}")
+            utils.logger.info(f"[DouYinCrawler.search] keyword:{keyword}")
+            self.mark_task_finish()
+

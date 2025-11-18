@@ -23,12 +23,12 @@ class AsyncHTTPHandler(logging.Handler):
                 'module': record.module,
                 'function': record.funcName,
                 'line': record.lineno,
+                'async_task': config.yunyizz_config.ASYNC_TASK_ID
             }
 
             # 异步发送请求
             future = self.session.post(
-                method="post",
-                url=config.yunyizz_config.BASE_URL + f"/async-task/{config.yunyizz_config.ASYNC_TASK_ID}/log",
+                url=config.yunyizz_config.BASE_URL + f"/api/log-entries/",
                 headers={'content-type': 'application/json;charset=UTF-8', 'accept': "application/json"},
                 json=data,
                 timeout=5,
@@ -36,7 +36,7 @@ class AsyncHTTPHandler(logging.Handler):
             )
 
             # 可以选择性地处理响应
-            # future.add_done_callback(self._handle_response)
+            future.add_done_callback(self._handle_response)
 
         except Exception as e:
             self.handleError(record)
