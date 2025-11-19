@@ -61,7 +61,7 @@ CUSTOM_BROWSER_PATH = "/opt/google/chrome/chrome"
 
 # CDP模式下是否启用无头模式
 # 注意：即使设置为True，某些反检测功能在无头模式下可能效果不佳
-CDP_HEADLESS = False
+CDP_HEADLESS = True
 
 # 浏览器启动超时时间（秒）
 BROWSER_LAUNCH_TIMEOUT = 60
